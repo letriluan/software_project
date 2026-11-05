@@ -124,7 +124,9 @@ public sealed class StudentService(AppDbContext db, ICurrentUser me, TimeProvide
         if (subjectId is { } sid) query = query.Where(p => p.SubjectId == sid);
 
         var notes = await query
-            .OrderByDescending(p => p.CreatedAtUtc)
+            // Order by when the lesson happened (falling back to when the note was written).
+            .OrderByDescending(p => p.Lesson != null ? p.Lesson.StartsAtUtc : p.CreatedAtUtc)
+            .ThenByDescending(p => p.CreatedAtUtc)
             .Select(p => new ProgressNoteDto(p.Id, p.LessonId, p.SubjectId, p.Subject!.Name, p.Note,
                 p.UnderstandingRating, p.CreatedAtUtc,
                 p.Lesson != null ? (DateTime?)p.Lesson.StartsAtUtc : null))
@@ -135,7 +137,7 @@ public sealed class StudentService(AppDbContext db, ICurrentUser me, TimeProvide
             .Select(g =>
             {
                 var rated = g.Where(n => n.UnderstandingRating is not null)
-                    .OrderBy(n => n.CreatedAtUtc).Select(n => n.UnderstandingRating!.Value).ToList();
+                    .OrderBy(n => n.LessonStartsAtUtc ?? n.CreatedAtUtc).Select(n => n.UnderstandingRating!.Value).ToList();
                 return new SubjectProgressSummary(
                     g.Key.SubjectId, g.Key.SubjectName, g.Count(),
                     rated.Count == 0 ? null : Math.Round(rated.Average(), 2),

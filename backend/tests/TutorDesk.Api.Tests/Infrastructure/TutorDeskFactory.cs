@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Time.Testing;
 using Testcontainers.PostgreSql;
 using TutorDesk.Api.Features.Admin;
 using TutorDesk.Api.Features.Auth;
@@ -35,7 +34,7 @@ public sealed class TutorDeskFactory : WebApplicationFactory<Program>, IAsyncLif
 
     private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:16-alpine").Build();
 
-    public FakeTimeProvider Clock { get; } = new(DefaultNow);
+    public TestClock Clock { get; } = new(DefaultNow);
 
     public async Task InitializeAsync() => await _db.StartAsync();
 
@@ -110,7 +109,7 @@ public sealed class ApiCollection : ICollectionFixture<TutorDeskFactory>
 public abstract class IntegrationTest(TutorDeskFactory factory) : IAsyncLifetime
 {
     protected TutorDeskFactory Factory { get; } = factory;
-    protected FakeTimeProvider Clock => Factory.Clock;
+    protected TestClock Clock => Factory.Clock;
     protected static JsonSerializerOptions Json => TutorDeskFactory.Json;
 
     public virtual Task InitializeAsync()
@@ -120,4 +119,29 @@ public abstract class IntegrationTest(TutorDeskFactory factory) : IAsyncLifetime
     }
 
     public virtual Task DisposeAsync() => Task.CompletedTask;
+}
+
+/// <summary>
+/// A settable clock. Unlike FakeTimeProvider it may move backwards, so each test can
+/// reset to a known date regardless of what the previous test did.
+/// </summary>
+public sealed class TestClock(DateTimeOffset start) : TimeProvider
+{
+    private DateTimeOffset _now = start;
+    private readonly Lock _gate = new();
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_gate) return _now;
+    }
+
+    public void SetUtcNow(DateTimeOffset value)
+    {
+        lock (_gate) _now = value;
+    }
+
+    public void Advance(TimeSpan by)
+    {
+        lock (_gate) _now += by;
+    }
 }
