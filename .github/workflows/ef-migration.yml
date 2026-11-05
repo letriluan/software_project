@@ -11,7 +11,7 @@ on:
         required: true
   push:
     branches: [main]
-    paths: ["backend/src/TutorDesk.Api/**"]
+    paths: ["backend/**", ".github/workflows/ef-migration.yml"]
 
 permissions:
   contents: write
@@ -42,6 +42,7 @@ jobs:
         if: steps.plan.outputs.name != ''
         run: |
           dotnet tool install --global dotnet-ef
+          dotnet restore src/TutorDesk.Api
           dotnet ef migrations add "${{ steps.plan.outputs.name }}" -p src/TutorDesk.Api -o Data/Migrations
           git status --short
       - name: Commit
