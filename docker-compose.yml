@@ -1,0 +1,41 @@
+# Local stack: Postgres + the app (API + React) on http://localhost:8080
+#   docker compose up --build
+# Demo accounts are seeded: tutor@tutordesk.demo / admin@tutordesk.demo, password Demo!2345
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tutordesk
+      POSTGRES_PASSWORD: tutordesk
+      POSTGRES_DB: tutordesk
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tutordesk"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports: ["8080:8080"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=db;Port=5432;Database=tutordesk;Username=tutordesk;Password=tutordesk
+      Jwt__SigningKey: local-compose-signing-key-not-for-production-123456
+      Jwt__SecureCookies: "false"   # plain http locally; Azure runs behind https
+      Seed__DemoData: "true"
+      Api__ExposeDocs: "true"       # Swagger UI at /swagger
+    healthcheck:
+      # The aspnet image has no curl; bash's /dev/tcp is enough to see the port is up.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q Healthy <&3'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  pgdata:

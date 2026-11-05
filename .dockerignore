@@ -1,0 +1,13 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.vite
+**/TestResults
+frontend/coverage
+e2e
+.git
+.github
+docs
+infra
+*.md

@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+.vs/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+e2e/playwright-report/
+e2e/test-results/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

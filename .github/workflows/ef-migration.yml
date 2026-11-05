@@ -1,0 +1,54 @@
+name: Add EF Core migration
+
+# Generates an EF Core migration on a GitHub runner and commits it to the branch.
+# Run manually with a name after changing the model, e.g. "AddLessonRate".
+# On push it only acts once: to bootstrap InitialCreate if the repo has no migrations yet.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Migration name (PascalCase)
+        required: true
+  push:
+    branches: [main]
+    paths: ["backend/src/TutorDesk.Api/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  migration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decide what to generate
+        id: plan
+        run: |
+          if [ -n "${{ inputs.name }}" ]; then
+            echo "name=${{ inputs.name }}" >> "$GITHUB_OUTPUT"
+          elif ! ls src/TutorDesk.Api/Data/Migrations/*_InitialCreate.cs >/dev/null 2>&1; then
+            echo "name=InitialCreate" >> "$GITHUB_OUTPUT"
+          else
+            echo "Migrations already bootstrapped; nothing to do."
+          fi
+      - uses: actions/setup-dotnet@v4
+        if: steps.plan.outputs.name != ''
+        with:
+          global-json-file: backend/global.json
+      - name: Generate migration
+        if: steps.plan.outputs.name != ''
+        run: |
+          dotnet tool install --global dotnet-ef
+          dotnet ef migrations add "${{ steps.plan.outputs.name }}" -p src/TutorDesk.Api -o Data/Migrations
+          git status --short
+      - name: Commit
+        if: steps.plan.outputs.name != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/TutorDesk.Api/Data/Migrations
+          git commit -m "Add EF Core migration ${{ steps.plan.outputs.name }}"
+          git push
