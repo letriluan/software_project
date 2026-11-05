@@ -40,7 +40,7 @@ flowchart LR
     subgraph ACA[Azure Container Apps - one container]
       A[ASP.NET Core 10 API<br/>serves the built SPA from wwwroot]
     end
-    A -->|EF Core + Npgsql| P[(Azure Database for PostgreSQL)]
+    A -->|EF Core + Npgsql| P[(PostgreSQL<br/>Neon free tier)]
     A -->|OpenTelemetry| I[Application Insights]
 ```
 
@@ -127,9 +127,10 @@ cd e2e && npm ci && npx playwright install chromium && npx playwright test   # a
 
 ## Deploy
 
-See [docs/deploy-azure.md](docs/deploy-azure.md). It covers the Bicep template for Container Apps,
-PostgreSQL and Application Insights, plus OIDC federated credentials so GitHub Actions deploys
-without a stored Azure secret.
+Runs for $0/month: Azure Container Apps (scales to zero, inside the free grant), Neon's free
+Postgres, Application Insights with a daily log cap, and an Azure budget alert as a safety net.
+[docs/deploy-azure.md](docs/deploy-azure.md) has the steps: one Bicep deployment, plus OIDC
+federated credentials so GitHub Actions deploys without a stored Azure secret.
 
 ## Project layout
 
@@ -145,6 +146,6 @@ infra/                    Bicep
 
 ## Tech
 
-ASP.NET Core 10 · EF Core 10 + Npgsql · ASP.NET Core Identity · JWT · PostgreSQL 16 · React 19 ·
+ASP.NET Core 10 · EF Core 10 + Npgsql · ASP.NET Core Identity · JWT · PostgreSQL (Neon) · React 19 ·
 TypeScript · Vite · TanStack Query · Vitest · Playwright · Docker · GitHub Actions · Azure Container
 Apps · Bicep · Application Insights (OpenTelemetry)

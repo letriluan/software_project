@@ -70,6 +70,14 @@ jobs:
       - run: npx vitest run --reporter=default --reporter=github-actions
       - run: npm run build
 
+  infra:
+    name: Infrastructure (Bicep build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and lint Bicep
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
   e2e:
     name: End-to-end (Playwright on Docker Compose)
     needs: [backend, frontend]
@@ -104,7 +112,7 @@ jobs:
   publish:
     name: Publish image to GHCR
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [e2e]
+    needs: [e2e, infra]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -152,6 +160,7 @@ jobs:
       - id: deploy
         name: Roll out the new image
         run: |
+          az extension add --name containerapp --upgrade --yes --only-show-errors
           az containerapp update \
             --name "${{ vars.AZURE_CONTAINER_APP }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \

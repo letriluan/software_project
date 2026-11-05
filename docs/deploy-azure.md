@@ -1,79 +1,94 @@
-# Deploying TutorDesk to Azure
+# Deploying TutorDesk to Azure (free setup)
 
-The CI/CD pipeline publishes a Docker image to GitHub Container Registry on every merge to `main`.
-Once the steps below are done, it also rolls the image out to Azure Container Apps and smoke-tests
-`/health/ready` on the live URL.
+| Piece | Service | Cost |
+|---|---|---|
+| App (API + React) | Azure Container Apps, consumption plan, scales to zero | $0 inside the monthly free grant (180k vCPU-s, 360k GiB-s, 2M requests) |
+| Database | Neon Postgres, free plan (1 GB, 100 compute-hours/month) | $0 |
+| Monitoring | Application Insights + Log Analytics, capped at 0.1 GB/day | $0 inside the free 5 GB/month |
+| Image | GitHub Container Registry, public package | $0 |
+| Safety net | Azure budget, emails you at 50% of $5 | $0 |
 
-Expect about 30 minutes for the one-time setup. All commands use the Azure CLI (`az login` first).
+Trade-off: after a quiet period the first request takes a few seconds while the app and the database wake up.
 
-## 1. Create the infrastructure
+## 1. Neon database (5 minutes)
+
+1. Sign up at neon.com and create a project: Postgres 16 or newer, region **AWS Asia Pacific (Sydney)**.
+2. Click **Connect**. Turn **Connection pooling off** (EF Core migrations want a direct connection), choose **.NET** as the format, and copy the string. It looks like:
+   `Host=ep-xxxx.ap-southeast-2.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=...;SSL Mode=Require`
+
+The app creates its tables on first start, including the `btree_gist` overlap constraint.
+
+## 2. Make the image public (1 minute)
+
+On GitHub: your profile → **Packages → software_project → Package settings → Change visibility → Public**.
+Azure can then pull `ghcr.io/letriluan/software_project:latest` without credentials.
+
+## 3. Create the Azure resources (10 minutes)
+
+Sign in at portal.azure.com and open **Cloud Shell** (the `>_` icon, choose Bash). Then:
 
 ```bash
+git clone https://github.com/letriluan/software_project && cd software_project
 az group create -n rg-tutordesk -l australiaeast
 
 az deployment group create -g rg-tutordesk -f infra/main.bicep -p infra/main.parameters.json \
-  -p postgresAdminPassword="$(openssl rand -base64 24)" \
-     jwtSigningKey="$(openssl rand -base64 48)"
+  -p databaseConnectionString='PASTE_NEON_STRING_HERE' \
+     jwtSigningKey="$(openssl rand -base64 48)" \
+     alertEmail='you@example.com' \
+  --query properties.outputs.appUrl.value -o tsv
 ```
 
-This creates:
+The last line prints the live URL. Open it: the first load can take up to a minute while the app migrates and seeds the database. Sign in with `tutor@tutordesk.demo` / `Demo!2345`.
 
-| Resource | Why |
-|---|---|
-| Container Apps environment + app `ca-tutordesk` | Runs the image; scales to zero when idle (`minReplicas: 0`) |
-| PostgreSQL Flexible Server (Burstable B1ms) | App database. `btree_gist` is allow-listed for the overlap constraint |
-| Log Analytics + Application Insights | Logs, requests, exceptions and the custom `tutordesk.*` metrics |
+## 4. Let GitHub Actions deploy (10 minutes)
 
-The app runs its EF Core migrations on startup, so the first revision creates the schema itself.
-
-> **Cost:** the B1ms Postgres server is the main cost (roughly AUD 20–30 a month; check the
-> Azure pricing calculator). To keep it near zero, point `ConnectionStrings__Default` at a
-> free Neon or Supabase Postgres instead, and delete the Postgres resources from `main.bicep`.
-
-## 2. Make the image pullable
-
-After the first CI run on `main`, open the repo's **Packages → software_project → Package settings**
-and set visibility to **Public**. Container Apps can then pull it without credentials.
-
-## 3. Let GitHub Actions deploy (OIDC, no stored passwords)
+Still in Cloud Shell:
 
 ```bash
 SUB=$(az account show --query id -o tsv)
+TENANT=$(az account show --query tenantId -o tsv)
 APP_ID=$(az ad app create --display-name gh-tutordesk-deploy --query appId -o tsv)
-az ad sp create --id "$APP_ID"
+az ad sp create --id "$APP_ID" > /dev/null
 az role assignment create --assignee "$APP_ID" --role Contributor \
-  --scope "/subscriptions/$SUB/resourceGroups/rg-tutordesk"
-
+  --scope "/subscriptions/$SUB/resourceGroups/rg-tutordesk" > /dev/null
 az ad app federated-credential create --id "$APP_ID" --parameters '{
-  "name": "github-main",
+  "name": "github-production",
   "issuer": "https://token.actions.githubusercontent.com",
   "subject": "repo:letriluan/software_project:environment:production",
   "audiences": ["api://AzureADTokenExchange"]
-}'
+}' > /dev/null
+echo "AZURE_CLIENT_ID=$APP_ID"; echo "AZURE_TENANT_ID=$TENANT"; echo "AZURE_SUBSCRIPTION_ID=$SUB"
 ```
 
-In GitHub, go to **Settings → Secrets and variables → Actions → Variables** and add:
+In the GitHub repo:
 
-| Variable | Value |
+1. **Settings → Environments → New environment** named `production`.
+2. **Settings → Secrets and variables → Actions → Variables tab → New repository variable**, five times:
+
+| Name | Value |
 |---|---|
-| `AZURE_CLIENT_ID` | `$APP_ID` |
-| `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
-| `AZURE_SUBSCRIPTION_ID` | `$SUB` |
+| `AZURE_CLIENT_ID` | printed above |
+| `AZURE_TENANT_ID` | printed above |
+| `AZURE_SUBSCRIPTION_ID` | printed above |
 | `AZURE_RESOURCE_GROUP` | `rg-tutordesk` |
 | `AZURE_CONTAINER_APP` | `ca-tutordesk` |
 
-Then create an environment called `production` (**Settings → Environments**). You can add yourself
-as a required reviewer if you want to approve each deploy.
+No passwords are stored: GitHub proves its identity to Azure with a short-lived OIDC token, and only for the `production` environment of this repo.
 
-Push to `main`, and the **Deploy to Azure Container Apps** job runs after the tests pass.
+## 5. Check it
 
-## 4. Monitoring
+**Actions → CI/CD → Run workflow** (or push any commit). After the tests, *Deploy to Azure Container Apps* rolls out the new image and fails the run if `/health/ready` doesn't come back healthy.
 
-In Application Insights:
+## Monitoring
 
-- **Failures** shows exceptions. Each API error response carries a `traceId`, so you can find the
-  matching trace.
-- **Metrics → Custom (tutordesk)** has `tutordesk.lessons.booked`, `tutordesk.lessons.conflicts`
-  and `tutordesk.lessons.attendance`, split by outcome.
-- **Availability**: add a standard test that pings `/health/ready` every 5 minutes. The same check
-  also keeps the app warm if you want to avoid cold starts.
+- **Application Insights → Failures**: exceptions. Every API error includes a `traceId` that matches the trace here.
+- **Metrics → custom namespace `TutorDesk`**: `tutordesk.lessons.booked`, `tutordesk.lessons.conflicts`, `tutordesk.lessons.attendance`.
+- **Cost Management → Budgets**: the `budget-tutordesk` alert.
+
+## Removing everything
+
+```bash
+az group delete -n rg-tutordesk --yes
+```
+
+Then delete the Neon project and the `gh-tutordesk-deploy` app registration (Entra ID → App registrations).

@@ -4,6 +4,7 @@
   "parameters": {
     "appName": { "value": "tutordesk" },
     "location": { "value": "australiaeast" },
-    "seedDemoData": { "value": true }
+    "seedDemoData": { "value": true },
+    "monthlyBudget": { "value": 5 }
   }
 }
