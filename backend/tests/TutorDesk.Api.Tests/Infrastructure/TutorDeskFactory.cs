@@ -33,9 +33,7 @@ public sealed class TutorDeskFactory : WebApplicationFactory<Program>, IAsyncLif
         Converters = { new JsonStringEnumConverter() },
     };
 
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .Build();
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:16-alpine").Build();
 
     public FakeTimeProvider Clock { get; } = new(DefaultNow);
 
